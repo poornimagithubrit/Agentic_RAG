@@ -1,0 +1,70 @@
+/* General body tweaks */
+body {
+    font-family: 'Inter', sans-serif;
+}
+
+/* Table styling */
+table {
+    border-collapse: collapse;
+    width: 100%;
+}
+
+th, td {
+    border: 1px solid #cbd5e1; /* light gray border */
+    padding: 8px 12px;
+    text-align: left;
+}
+
+th {
+    background-color: #e2e8f0; /* light blue-gray */
+    font-weight: 600;
+}
+
+tr:nth-child(even) {
+    background-color: #f8fafc; /* light gray for even rows */
+}
+
+/* Scrollable table container */
+#resultsContainer {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* Buttons */
+button {
+    transition: all 0.2s ease-in-out;
+}
+
+button:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+/* Inputs */
+input[type="text"], input[type="file"] {
+    border: 1px solid #cbd5e1;
+    padding: 8px 10px;
+    border-radius: 0.5rem;
+    outline: none;
+}
+
+input[type="text"]:focus {
+    border-color: #3b82f6; /* Tailwind blue-500 */
+    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* Messages */
+#uploadMessage {
+    font-weight: 500;
+}
+
+#queryMessage {
+    font-weight: 500;
+}
+
+/* Responsive tweaks */
+@media (max-width: 640px) {
+    .w-full {
+        width: 95% !important;
+    }
+}
