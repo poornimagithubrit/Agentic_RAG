@@ -6,7 +6,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse
 from pydantic import BaseModel
-import re
+from dotenv import load_dotenv
+from openai import OpenAI
+
+# Load API key
+load_dotenv()
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 app = FastAPI()
 
@@ -48,67 +53,59 @@ async def upload_csv(file: UploadFile):
         "columns": df.columns.tolist()
     }
 
-# Query CSV
+# Query request model
 class QueryRequest(BaseModel):
     filename: str
     query: str
+
+# Natural Language → Pandas Execution
+def run_nl_query(df: pd.DataFrame, query: str):
+    schema = ", ".join(df.columns.tolist())
+
+    prompt = f"""
+    You are an assistant that converts natural language into pandas code.
+    DataFrame is named df. It has columns: {schema}.
+    Convert this user request into pandas code that returns a DataFrame:
+
+    User request: "{query}"
+
+    Rules:
+    - Always assign the final DataFrame to a variable called result.
+    - Use case-insensitive matching for text filters (e.g., str.contains("value", case=False)).
+    - If column names are not an exact match, try fuzzy matching with similar words from query.
+    - If no filter is detected, just return the first 10 rows with result = df.head(10).
+    """
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0,
+    )
+
+    code = response.choices[0].message.content.strip("```python").strip("```")
+
+    local_vars = {"df": df.copy(), "pd": pd}
+    try:
+        exec(code, {}, local_vars)
+        result = local_vars.get("result", df.head(10))
+    except Exception as e:
+        print("⚠️ Error executing generated code:", e)
+        result = df.head(10)
+
+    return result
+
+# Query CSV
 @app.post("/query_csv")
 async def query_csv(request: QueryRequest):
     filename = request.filename
-    query = request.query.lower().strip()
+    query = request.query.strip()
 
     if filename not in CSV_FILES:
         return {"error": f"CSV '{filename}' not found. Please upload it first."}
 
     df = CSV_FILES[filename]
 
-    # Step 1: Detect filters dynamically (looser regex)
-    filters = []
-    for col in df.columns:
-        col_lower = col.lower()
+    # Use GPT to interpret natural language query
+    result_df = run_nl_query(df, query)
 
-        # Allow "serial number A389754", "serial number is A389754", etc.
-        pattern = rf"{col_lower}\s*(?:is|=|for)?\s*([\w\s\d\.-]+)"
-        match = re.search(pattern, query)
-        if match:
-            filters.append((col, match.group(1).strip()))
-
-    # Apply filters
-    filtered_df = df.copy()
-    for col, value in filters:
-        filtered_df = filtered_df[filtered_df[col].astype(str).str.lower() == value.lower()]
-
-    # Step 2: Detect explicitly requested columns
-    requested_cols = []
-    for col in df.columns:
-        if col.lower() in query and all(fcol.lower() != col.lower() for fcol, _ in filters):
-            requested_cols.append(col)
-
-    # Step 3: Columns to return
-    cols_to_return = [f[0] for f in filters] + requested_cols
-    cols_to_return = list(dict.fromkeys(cols_to_return))  # remove duplicates
-
-    # Step 4: Response
-    if not filtered_df.empty:
-        if cols_to_return:
-            result = filtered_df[cols_to_return].to_dict(orient="records")
-        else:
-            result = filtered_df[[f[0] for f in filters]].to_dict(orient="records") if filters else df.head(5).to_dict(orient="records")
-    else:
-        # Keyword fallback
-        matched = False
-        for word in query.split():
-            mask = pd.DataFrame(False, index=df.index, columns=df.columns)
-            for col in df.columns:
-                mask[col] = df[col].astype(str).str.lower().str.contains(word)
-            combined_mask = mask.any(axis=1)
-            if combined_mask.any():
-                filtered_df = df[combined_mask]
-                result = filtered_df.head(10).to_dict(orient="records")
-                matched = True
-                break
-
-        if not matched:
-            result = df.head(10).to_dict(orient="records")
-
-    return result
+    return result_df.to_dict(orient="records")
